@@ -1,0 +1,104 @@
+{
+    "name": "global-owlv2-sam-toolbar",
+    "displayName": "Global OWLv2 SAM Toolbar",
+    "description": "Global OWLv2 SAM Toolbar",
+    "version": "0.0.1",
+    "scope": "public",
+    "codebase": {
+        "type": "git",
+        "gitUrl": "https://github.com/dataloop-ai-apps/owlvit-sam-system-toolbar.git",
+        "gitTag": "0.0.1"
+    },
+    "attributes": {
+        "License": "Apache 2.0"
+    },
+    "components": {
+        "toolbars": [
+            {   
+                "name": "owlv2-sam-toolbar",
+                "displayName": "OWLv2-SAM",
+                "invoke": {
+                    "type": "function",
+                    "namespace": "owlv2-sam-toolbar.runner.run"
+                },
+                "action": "drawAnnotation",
+                "location": "imageStudio",
+                "conditions": {
+                    "resources": [
+                        {
+                            "entityType": "item",
+                            "filter": {
+                                "$and": [
+                                    {
+                                        "metadata.system.mimetype": "image/*"
+                                    },
+                                    {
+                                        "hidden": false
+                                    },
+                                    {
+                                        "type": "file"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "modules": [
+            {
+                "name": "runner",
+                "entryPoint": "runner.py",
+                "className": "Runner",
+                "initInputs": [],
+                "functions": [
+                    {
+                        "name": "run",
+                        "description": "Inference both model",
+                        "input": [
+                            {
+                                "name": "item",
+                                "type": "Item"
+                            }
+                        ],
+                        "output": [
+                            {
+                                "name": "annotations",
+                                "type": "Json"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "run_and_upload",
+                        "description": "Run the SAM decoder on the item and upload the annotations",
+                        "input": [
+                            {
+                                "name": "item",
+                                "type": "Item"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "services": [
+            {
+                "name": "owlv2-sam-toolbar",
+                "moduleName": "runner",
+                "useUserJwt": true,
+                "runtime": {
+                    "podType": "regular-s",
+                    "concurrency": 10,
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.1",
+                    "autoscaler": {
+                        "minReplicas": 1,
+                        "maxReplicas": 1,
+                        "queueLength": 10
+                    }
+                },
+                "executionTimeout": 120
+            }
+        ]
+    }
+}
+
