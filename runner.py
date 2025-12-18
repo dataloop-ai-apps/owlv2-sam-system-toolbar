@@ -41,7 +41,6 @@ class Runner(dl.BaseServiceRunner):
         else:
             onnx_model_path = "weights/sam2_hiera_small.decoder.onnx"
         
-        # TODO: check why we are using a local path for the ONNX model
         self.sam_ort_session = onnxruntime.InferenceSession(
             onnx_model_path, providers=["CPUExecutionProvider"]
         )
