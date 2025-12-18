@@ -85,7 +85,7 @@
             {
                 "name": "owlv2-sam-toolbar",
                 "moduleName": "runner",
-                "useUserJwt": true,
+                "botUserName": "tab-apps@dataloop.ai",
                 "runtime": {
                     "podType": "regular-s",
                     "concurrency": 10,
