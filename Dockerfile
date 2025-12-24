@@ -30,14 +30,5 @@ Owlv2ForObjectDetection.from_pretrained(model_id)
 print("Done downloading OWLv2 weights.")
 PY
 
-# Download SAM2 ONNX decoder weights
-RUN mkdir -p /tmp/app/weights && \
-    ${DL_PYTHON_EXECUTABLE} -c "from huggingface_hub import hf_hub_download; \
-    hf_hub_download(repo_id='SharpAI/sam2-hiera-small-onnx', \
-                    filename='decoder.onnx', \
-                    local_dir='/tmp/app/weights', \
-                    local_dir_use_symlinks=False)" && \
-    mv /tmp/app/weights/decoder.onnx /tmp/app/weights/sam2_hiera_small.decoder.onnx
-
-# docker build --no-cache -t gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.1 -f Dockerfile .
-# docker push gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.1
+# docker build --no-cache -t gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.2 -f Dockerfile .
+# docker push gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.2
