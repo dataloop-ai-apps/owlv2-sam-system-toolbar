@@ -10,6 +10,7 @@ import time
 import cv2
 import os
 from PIL import Image
+from threading import Thread
 
 # OWLv2 (Hugging Face)
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
@@ -18,7 +19,6 @@ logger = logging.getLogger("OWLV2-SAM-TOOLBAR")
 
 # set max image size
 Image.MAX_IMAGE_PIXELS = 933120000
-
 
 class Runner(dl.BaseServiceRunner):
     """
@@ -49,6 +49,12 @@ class Runner(dl.BaseServiceRunner):
         self.owl_score_threshold = 0.20
         self.max_detections = 300
 
+        # Pre-generate mask input to avoid repeated computation
+        embed_size = 64
+        self.cached_mask_input = torch.randn(
+            1, 1, 4 * embed_size, 4 * embed_size, dtype=torch.float
+        ).cpu().numpy()
+
     def run_and_upload(self, dl, item: dl.Item):
         annotations = self.run(dl, item)
         item.annotations.upload(annotations)
@@ -72,22 +78,50 @@ class Runner(dl.BaseServiceRunner):
                     "Dataset recipe labels are empty. OWLv2 requires a label/prompt list "
                 )
 
-            detections = self.run_owlv2(source=source, labels=labels)
-            collection = self.run_sam(
-                dl=dl, item=item, detections=detections, labels=labels
+            # Run OWLv2 detection and SAM feature extraction in parallel
+            detections = None
+            sam_features = None
+            exception = None
+
+            def run_owlv2_thread():
+                nonlocal detections, exception
+                try:
+                    detections = self.run_owlv2(source=source, labels=labels)
+                except Exception as e:
+                    exception = e
+
+            def run_sam_features_thread():
+                nonlocal sam_features, exception
+                try:
+                    sam_features = self.extract_sam_features(dl=dl, item=item)
+                except Exception as e:
+                    exception = e
+
+            thread1 = Thread(target=run_owlv2_thread)
+            thread2 = Thread(target=run_sam_features_thread)
+
+            thread1.start()
+            thread2.start()
+
+            thread1.join()
+            thread2.join()
+
+            if exception:
+                raise exception
+
+            collection = self.run_sam_decoder(
+                item=item, detections=detections, labels=labels, sam_features=sam_features
             )
 
         logger.info(f"Full run took: {time.time() - tic:.2f} seconds")
         return collection.to_json()["annotations"]
 
-    def run_sam(self, dl, item: dl.Item, detections, labels):
+    def extract_sam_features(self, dl, item: dl.Item):
         """
-        Run the SAM decoder on the item, using OWLv2 detections as prompts.
-        `detections` is a list of dicts:
-            {"cls": int, "conf": float, "id": int, "xyxy": np.ndarray shape (4,)}
+        Extract SAM features from the item.
         """
         tic = time.time()
-        logger.info(f"Running SAM decoder on item: {item.id}")
+        logger.info(f"Running SAM feature extraction on item: {item.id}")
         logger.info(f"current user: {dl.info()['user_email']}")
 
         ex = dl.services.execute(
@@ -115,48 +149,61 @@ class Runner(dl.BaseServiceRunner):
             base64.b64decode(image_embedding_dict["high_res_feats_1"]), dtype=np.float32
         ).reshape([1, 64, 128, 128])
 
-        embed_size = 64
+        return {
+            "image_embed": image_embed,
+            "high_res_feats_0": high_res_feats_0,
+            "high_res_feats_1": high_res_feats_1,
+        }
+
+    def run_sam_decoder(self, item: dl.Item, detections, labels, sam_features):
+        """
+        Run the SAM decoder on the item, using OWLv2 detections as prompts.
+        `detections` is a list of dicts:
+            {"cls": int, "conf": float, "id": int, "xyxy": np.ndarray shape (4,)}
+        """
+        tic = time.time()
+        
         height = item.height
         width = item.width
 
+        # Pre-compute scaling factors
+        width_scale = 1024 / width
+        height_scale = 1024 / height
+
         collection = dl.AnnotationCollection()
 
+        # Filter valid detections
+        valid_detections = []
         for det in reversed(detections):
+            c = int(det["cls"])
+            if c >= 0 and c < len(labels):
+                valid_detections.append(det)
+
+        for det in valid_detections:
             c = int(det["cls"])
             d_conf = float(det["conf"])
             obj_id = det["id"]
-
-            if c < 0 or c >= len(labels):
-                continue
-
             name = labels[c]
             box = det["xyxy"]  # [x0,y0,x1,y1] in pixel coords
 
             logger.info(f"{name} {d_conf:.2f} {box}")
 
             feeds = {
-                "image_embed": image_embed,
-                "high_res_feats_0": high_res_feats_0,
-                "high_res_feats_1": high_res_feats_1,
+                "image_embed": sam_features["image_embed"],
+                "high_res_feats_0": sam_features["high_res_feats_0"],
+                "high_res_feats_1": sam_features["high_res_feats_1"],
                 "point_coords": np.array(
-                    [
-                        [
-                            [box[0] / width * 1024, box[1] / height * 1024],
-                            [box[2] / width * 1024, box[3] / height * 1024],
-                        ]
-                    ],
+                    [[[box[0] * width_scale, box[1] * height_scale],
+                      [box[2] * width_scale, box[3] * height_scale]]],
                     dtype=np.float32,
                 ),
                 "point_labels": np.array([[2, 3]], dtype=np.float32),
-
-                "mask_input": torch.randn(
-                    1, 1, 4 * embed_size, 4 * embed_size, dtype=torch.float
-                ).cpu().numpy(),
+                "mask_input": self.cached_mask_input,
                 "has_mask_input": np.array([0], dtype=np.float32),
             }
 
             result = self.sam_ort_session.run([self.output_name[0]], feeds)
-            mask = cv2.resize(result[0][0][0], (width, height))
+            mask = cv2.resize(result[0][0][0], (width, height), interpolation=cv2.INTER_LINEAR)
 
             # Box annotation
             collection.add(
@@ -176,6 +223,15 @@ class Runner(dl.BaseServiceRunner):
 
         logger.info(f"Total SAM predictions took: {time.time() - tic:.2f} seconds")
         return collection
+
+    def run_sam(self, dl, item: dl.Item, detections, labels):
+        """
+        Run the SAM decoder on the item, using OWLv2 detections as prompts.
+        `detections` is a list of dicts:
+            {"cls": int, "conf": float, "id": int, "xyxy": np.ndarray shape (4,)}
+        """
+        sam_features = self.extract_sam_features(dl=dl, item=item)
+        return self.run_sam_decoder(item=item, detections=detections, labels=labels, sam_features=sam_features)
 
     def run_owlv2(self, source: str, labels: list):
         """
@@ -236,10 +292,10 @@ class Runner(dl.BaseServiceRunner):
 
 def test():
     import dtlpy as dl
-
-    dl.setenv("rc")
-    # item = dl.items.get(item_id="")  # prod
-    item = dl.items.get(item_id="")  # rc
+    logging.basicConfig(level=logging.INFO)
+    dl.setenv("prod")
+    item = dl.items.get(item_id="")  # prod
+    # item = dl.items.get(item_id="")  # rc
 
     runner = Runner(dl=dl)
     annotations = runner.run(dl=dl, item=item)
