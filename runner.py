@@ -79,21 +79,30 @@ class Runner(dl.BaseServiceRunner):
                 )
 
             # Run OWLv2 detection and SAM feature extraction in parallel
+            parallel_start = time.time()
             detections = None
             sam_features = None
             exception = None
+            owlv2_time = None
+            sam_features_time = None
 
             def run_owlv2_thread():
-                nonlocal detections, exception
+                nonlocal detections, exception, owlv2_time
                 try:
+                    owl_start = time.time()
                     detections = self.run_owlv2(source=source, labels=labels)
+                    owlv2_time = time.time() - owl_start
+                    logger.info(f"[TIMING] OWLv2 detection took: {owlv2_time:.2f}s")
                 except Exception as e:
                     exception = e
 
             def run_sam_features_thread():
-                nonlocal sam_features, exception
+                nonlocal sam_features, exception, sam_features_time
                 try:
+                    sam_start = time.time()
                     sam_features = self.extract_sam_features(dl=dl, item=item)
+                    sam_features_time = time.time() - sam_start
+                    logger.info(f"[TIMING] SAM feature extraction took: {sam_features_time:.2f}s")
                 except Exception as e:
                     exception = e
 
@@ -108,12 +117,21 @@ class Runner(dl.BaseServiceRunner):
 
             if exception:
                 raise exception
+            
+            parallel_time = time.time() - parallel_start
+            logger.info(f"[TIMING] Parallel execution (OWLv2 + SAM features) took: {parallel_time:.2f}s")
 
+            # Run SAM decoder
+            decoder_start = time.time()
             collection = self.run_sam_decoder(
                 item=item, detections=detections, labels=labels, sam_features=sam_features
             )
+            decoder_time = time.time() - decoder_start
+            logger.info(f"[TIMING] SAM decoder took: {decoder_time:.2f}s")
 
-        logger.info(f"Full run took: {time.time() - tic:.2f} seconds")
+        total_time = time.time() - tic
+        logger.info(f"[TIMING] Full run took: {total_time:.2f}s")
+        logger.info(f"[TIMING] Breakdown - OWLv2: {owlv2_time:.2f}s | SAM features: {sam_features_time:.2f}s | SAM decoder: {decoder_time:.2f}s")
         return collection.to_json()["annotations"]
 
     def extract_sam_features(self, dl, item: dl.Item):
@@ -121,9 +139,7 @@ class Runner(dl.BaseServiceRunner):
         Extract SAM features from the item.
         """
         tic = time.time()
-        logger.info(f"Running SAM feature extraction on item: {item.id}")
-        logger.info(f"current user: {dl.info()['user_email']}")
-
+        
         ex = dl.services.execute(
             service_id=self.sam_service.id,
             function_name="get_sam_features",
@@ -133,8 +149,6 @@ class Runner(dl.BaseServiceRunner):
         ex = dl.executions.wait(execution=ex, timeout=60)
         if ex.latest_status["status"] not in ["success"]:
             raise ValueError(f"Execution failed. ex id: {ex.id}")
-
-        logger.info(f"SAM feature extraction took: {time.time() - tic:.2f} seconds")
 
         item_bytes = dl.items.get(item_id=ex.output).download(save_locally=False)
         image_embedding_dict = json.load(item_bytes)
@@ -161,8 +175,6 @@ class Runner(dl.BaseServiceRunner):
         `detections` is a list of dicts:
             {"cls": int, "conf": float, "id": int, "xyxy": np.ndarray shape (4,)}
         """
-        tic = time.time()
-        
         height = item.height
         width = item.width
 
@@ -185,8 +197,6 @@ class Runner(dl.BaseServiceRunner):
             obj_id = det["id"]
             name = labels[c]
             box = det["xyxy"]  # [x0,y0,x1,y1] in pixel coords
-
-            logger.info(f"{name} {d_conf:.2f} {box}")
 
             feeds = {
                 "image_embed": sam_features["image_embed"],
@@ -221,7 +231,6 @@ class Runner(dl.BaseServiceRunner):
                 model_info={"name": "owlv2", "confidence": d_conf},
             )
 
-        logger.info(f"Total SAM predictions took: {time.time() - tic:.2f} seconds")
         return collection
 
     def run_sam(self, dl, item: dl.Item, detections, labels):
@@ -238,7 +247,6 @@ class Runner(dl.BaseServiceRunner):
         Run OWLv2 on the image with provided text labels.
         Returns a list of detection dicts compatible with `run_sam`.
         """
-        tic = time.time()
         image = Image.open(source).convert("RGB")
         w, h = image.size
 
@@ -286,7 +294,6 @@ class Runner(dl.BaseServiceRunner):
                 }
             )
 
-        logger.info(f"OWLv2 took: {time.time() - tic:.2f} seconds, detections={len(detections)}")
         return detections
 
 
@@ -294,7 +301,7 @@ def test():
     import dtlpy as dl
     logging.basicConfig(level=logging.INFO)
     dl.setenv("prod")
-    item = dl.items.get(item_id="")  # prod
+    item = dl.items.get(item_id="694bee91fb2bb29e561b5121")  # prod
     # item = dl.items.get(item_id="")  # rc
 
     runner = Runner(dl=dl)
