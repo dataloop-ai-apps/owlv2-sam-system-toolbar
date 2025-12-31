@@ -2,12 +2,12 @@
     "name": "global-owlv2-sam-toolbar",
     "displayName": "Global OWLv2 SAM Toolbar",
     "description": "Global OWLv2 SAM Toolbar",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "scope": "public",
     "codebase": {
         "type": "git",
         "gitUrl": "https://github.com/dataloop-ai-apps/owlvit-sam-system-toolbar.git",
-        "gitTag": "0.0.2"
+        "gitTag": "0.0.3"
     },
     "attributes": {
         "License": "Apache 2.0"
