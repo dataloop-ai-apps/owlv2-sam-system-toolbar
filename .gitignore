@@ -379,8 +379,6 @@ Thumbs.db
 *.flv
 *.mov
 *.wmv
-
-/weights
 export_output
 .dataloop
 
@@ -388,4 +386,7 @@ export_output
 customer_*.*
 *dataloop_scripts.py
 *venv*
-weights
+weights/owlv2-base-patch16-ensemble/
+runner_old.py
+Dockerfile_old
+weights/owlv2-base-patch16-ensemble-ONNX/

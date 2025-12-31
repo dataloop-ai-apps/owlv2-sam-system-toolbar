@@ -87,9 +87,9 @@
                 "moduleName": "runner",
                 "useUserJwt": true,
                 "runtime": {
-                    "podType": "regular-s",
+                    "podType": "regular-m",
                     "concurrency": 10,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.1",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.3",
                     "autoscaler": {
                         "minReplicas": 1,
                         "maxReplicas": 1,
