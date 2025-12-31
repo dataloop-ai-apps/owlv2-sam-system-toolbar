@@ -387,4 +387,6 @@ customer_*.*
 *dataloop_scripts.py
 *venv*
 weights/owlv2-base-patch16-ensemble/
-runner_test.py
+runner_old.py
+Dockerfile_old
+weights/owlv2-base-patch16-ensemble-ONNX/

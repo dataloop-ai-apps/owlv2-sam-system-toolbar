@@ -90,7 +90,7 @@
                 "runtime": {
                     "podType": "regular-s",
                     "concurrency": 10,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.2",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/owlv2-sam-system-toolbar:0.0.3",
                     "autoscaler": {
                         "minReplicas": 1,
                         "maxReplicas": 1,
